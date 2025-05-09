@@ -1,6 +1,6 @@
 import oracledb from 'oracledb'
 
-const connection = async () => {
+export const connection = async () => {
     try {
         const conn = await oracledb.getConnection({
             user: process.env.DB_USER,
@@ -14,4 +14,4 @@ const connection = async () => {
     }
 }
 
-export default connection
+export const OUT_FORMAT_OBJECT = oracledb.OUT_FORMAT_OBJECT

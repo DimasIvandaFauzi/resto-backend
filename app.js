@@ -1,5 +1,5 @@
 import express from 'express'
-import connection from './database/connection.js'
+import { connection } from './database/connection.js'
 import { errorHandler, pathNotFound } from './middleware/errorMiddleware.js'
 import cookieParser from 'cookie-parser'
 import menuRoutes from './routes/menuRoutes.js'

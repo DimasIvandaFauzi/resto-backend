@@ -1,23 +1,38 @@
-import asyncHandler from "../middleware/asyncHandler.js";
-import connection from "../database/connection.js";
+import asyncHandler from "../middleware/asyncHandler.js"
+import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js"
 
 export const createMenu = asyncHandler(async (req, res) => {
     const { id, name, category, description, price, stock } = req.body
 
     const conn = await connection()
-    const sql = `INSERT INTO menu (id, name, category, description, price, stock) VALUES (:id, :name, :category, :description, :price, :stock)`
+    const sql = `INSERT INTO menu (id, name, category, description, price, stock)
+                VALUES (:id, :name, :category, :description, :price, :stock)`
+
     const newMenu = await conn.execute(
         sql,
         [id, name, category, description, price, stock],
         {
             autoCommit: true,
         }
-    );
+    )
+
+    const getData = `SELECT id, name, category, description, price, stock 
+                        FROM menu 
+                        WHERE id = :id`
+        
+    const data = await conn.execute(
+        getData,
+        [id],
+        {
+            outFormat: OUT_FORMAT_OBJECT
+        }
+    )
+
     await conn.close()
 
     return res.status(201).json({
         message: "Berhasil menambah menu",
-        data: newMenu,
+        data: data.rows[0],
     })
 })
 
@@ -50,48 +65,90 @@ export const allMenu = asyncHandler(async (req, res) => {
         limit: parseInt(limit),
     };
 
-    const result = await conn.execute(sql, binds);
+    const data = await conn.execute(
+        sql,
+        binds,
+        {
+            outFormat: OUT_FORMAT_OBJECT
+        }
+    )
     await conn.close();
 
     return res.status(200).json({
-        message: "Berhasil menampilkan menu",
-        data: result.rows
+        message: "Berhasil menampilkan seluruh menu",
+        data: data.rows
     })
 })
 
 export const detailMenu = asyncHandler(async (req, res) => {
-    const paramId = req.params.id;
-    const data = await Menu.findById(paramId);
+    const id = req.params.id
 
-    if (!data) {
-        res.status(404);
-        throw new Error("ID tidak ditemukan");
-    }
+    const conn = await connection()
+    const sql = `SELECT * FROM menu WHERE id = :id`
+    const data = await conn.execute(
+        sql,
+        [id]
+    )
 
-    return res.status(200).json({
-        message: "Berhasil menampilkan detail pola belajar",
-        data,
-    });
-});
+    await conn.close()
+
+    return res.status(201).json({
+        message: "Berhasil menampilkan detail menu",
+        data: data.rows[0],
+    })
+})
 
 export const updateMenu = asyncHandler(async (req, res) => {
-    const paramId = req.params.id;
-    const data = await Menu.findByIdAndUpdate(paramId, req.body, {
-        runValidators: false,
-        new: true,
-    });
+    const { name, category, description, price, stock } = req.body
+    const id = req.params.id
 
-    return res.status(200).json({
-        message: "Berhasil memperbarui pola belajar",
-        data,
-    });
-});
+    const conn = await connection()
+    const sql = `UPDATE menu SET name = :name, category = :category, description = :description, price = :price, stock = :stock  WHERE id = :id`
+    const updateMenu = await conn.execute(
+        sql,
+        [name, category, description, price, stock, id],
+        {
+            autoCommit: true,
+            outFormat: OUT_FORMAT_OBJECT
+        }
+    )
+
+    const getData = `SELECT id, name, category, description, price, stock 
+                        FROM menu 
+                        WHERE id = :id`
+        
+    const data = await conn.execute(
+        getData,
+        [id],
+        {
+            outFormat: OUT_FORMAT_OBJECT
+        }
+    )
+
+    await conn.close()
+
+    return res.status(201).json({
+        message: "Berhasil mengubah menu",
+        data: data.rows[0],
+    })
+})
 
 export const deleteMenu = asyncHandler(async (req, res) => {
-    const paramId = req.params.id;
-    await Menu.findByIdAndDelete(paramId);
+    const id = req.params.id
 
-    return res.status(200).json({
-        message: "Berhasil menghapus pola belajar",
-    });
-});
+    const conn = await connection()
+    const sql = `DELETE FROM menu WHERE id = :id`
+    const deleteMenu = await conn.execute(
+        sql,
+        [id],
+        {
+            autoCommit: true,
+        }
+    )
+
+    await conn.close()
+
+    return res.status(201).json({
+        message: "Berhasil menghapus menu",
+    })
+})
