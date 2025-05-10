@@ -5,8 +5,8 @@ export const createMenu = asyncHandler(async (req, res) => {
     const { id, name, category, description, price, stock } = req.body
 
     const conn = await connection()
-    const sql = `INSERT INTO menu (id, name, category, description, price, stock)
-                VALUES (:id, :name, :category, :description, :price, :stock)`
+    const sql = `INSERT INTO menu (id_menu, name, category, description, price, stock)
+                VALUES (:id_menu, :name, :category, :description, :price, :stock)`
 
     const newMenu = await conn.execute(
         sql,
@@ -16,9 +16,9 @@ export const createMenu = asyncHandler(async (req, res) => {
         }
     )
 
-    const getData = `SELECT id, name, category, description, price, stock 
+    const getData = `SELECT id_menu, name, category, description, price, stock 
                         FROM menu 
-                        WHERE id = :id`
+                        WHERE id_menu = :id_menu`
         
     const data = await conn.execute(
         getData,
@@ -42,7 +42,7 @@ export const allMenu = asyncHandler(async (req, res) => {
         name = "",
         category = "",
         limit = 10,
-        sortBy = "id",
+        sortBy = "id_menu",
         sortOrder = "ASC",
         price = 1,
         stock = 1,
@@ -84,7 +84,7 @@ export const detailMenu = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `SELECT * FROM menu WHERE id = :id`
+    const sql = `SELECT * FROM menu WHERE id_menu = :id_menu`
     const data = await conn.execute(
         sql,
         [id]
@@ -103,7 +103,7 @@ export const updateMenu = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `UPDATE menu SET name = :name, category = :category, description = :description, price = :price, stock = :stock  WHERE id = :id`
+    const sql = `UPDATE menu SET name = :name, category = :category, description = :description, price = :price, stock = :stock  WHERE id_menu = :id_menu`
     const updateMenu = await conn.execute(
         sql,
         [name, category, description, price, stock, id],
@@ -113,9 +113,9 @@ export const updateMenu = asyncHandler(async (req, res) => {
         }
     )
 
-    const getData = `SELECT id, name, category, description, price, stock 
+    const getData = `SELECT id_menu, name, category, description, price, stock 
                         FROM menu 
-                        WHERE id = :id`
+                        WHERE id_menu = :id_menu`
         
     const data = await conn.execute(
         getData,
@@ -137,7 +137,7 @@ export const deleteMenu = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `DELETE FROM menu WHERE id = :id`
+    const sql = `DELETE FROM menu WHERE id_menu = :id_menu`
     const deleteMenu = await conn.execute(
         sql,
         [id],
