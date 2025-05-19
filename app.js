@@ -4,8 +4,12 @@ import { errorHandler, pathNotFound } from './middleware/errorMiddleware.js'
 import cookieParser from 'cookie-parser'
 import menuRoutes from './routes/menuRoutes.js'
 import transactionRoutes from './routes/transactionRoutes.js'
-
+import cors from 'cors';
 const app = express()
+app.use(cors({
+  origin: 'http://localhost:5173', 
+  credentials: true
+}));
 const port = 3000
 
 // Middleware
