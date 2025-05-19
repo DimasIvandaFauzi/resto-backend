@@ -2,24 +2,26 @@ import asyncHandler from "../middleware/asyncHandler.js"
 import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js"
 import moment from "moment"
 
-export const createPesan = asyncHandler(async (req, res) => {
-    const { id, total_harga } = req.body
+export const createTransaction = asyncHandler(async (req, res) => {
+    const { id, subtotal, money } = req.body
+
+    let refund = money - subtotal
 
     const conn = await connection()
-    const sql = `INSERT INTO pesan (id_pesan, total_harga, status, tanggal)
-                VALUES (:id_pesan, :total_harga, 'PENDING', SYSDATE)`
+    const sql = `INSERT INTO transaction (id_transaction, subtotal, money, refund, status, datetime)
+                VALUES (:id_transaction, :subtotal, :money, ${refund}, 'PROSES', SYSDATE)`
 
-    const newPesan = await conn.execute(
+    const newTransaction = await conn.execute(
         sql,
-        [id, total_harga],
+        [id, subtotal, money],
         {
             autoCommit: true,
         }
     )
 
-    const getData = `SELECT id_pesan, total_harga, status, tanggal 
-                        FROM pesan 
-                        WHERE id_pesan = :id_pesan`
+    const getData = `SELECT id_transaction, subtotal, money, refund, status, datetime 
+                        FROM transaction 
+                        WHERE id_transaction = :id_transaction`
         
     const data = await conn.execute(
         getData,
@@ -32,35 +34,35 @@ export const createPesan = asyncHandler(async (req, res) => {
     await conn.close()
 
     return res.status(201).json({
-        message: "Berhasil membuat pesanan",
+        message: "Berhasil membuat transaksi",
         data: data.rows[0],
     })
 })
 
-export const allPesan = asyncHandler(async (req, res) => {
+export const allTransaction = asyncHandler(async (req, res) => {
     const conn = await connection()
     
     let {
-        total_harga = 0,
+        subtotal = 0,
         status = "",
-        tanggal,
+        datetime,
         page = 1,
         limit = 7,
-        sortBy = "id_pesan",
+        sortBy = "id_transaction",
         sortOrder = "ASC"
     } = req.query
     
     // Validasi parameter sorting
-    const allowedSortFields = ["id_pesan", "total_harga", "status", "tanggal"]
+    const allowedSortFields = ["id_transaction", "subtotal", "money", "refund", "status", "datetime"]
     const allowedSortOrders = ["ASC", "DESC"]
     
-    if (!allowedSortFields.includes(sortBy)) sortBy = "id_pesan"
+    if (!allowedSortFields.includes(sortBy)) sortBy = "id_transaction"
     if (!allowedSortOrders.includes(sortOrder.toUpperCase())) sortOrder = "ASC"
     
     const pageInt = parseInt(page)
     const limitInt = parseInt(limit)
     const offset = (pageInt - 1) * limitInt
-    const totalHargaInt = parseInt(total_harga || 0)
+    const totalHargaInt = parseInt(subtotal || 0)
     
     let whereConditions = []
     let countBindParams = {}
@@ -70,9 +72,9 @@ export const allPesan = asyncHandler(async (req, res) => {
     }
     
     if (totalHargaInt > 0) {
-        whereConditions.push("total_harga >= :total_harga")
-        countBindParams.total_harga = totalHargaInt
-        dataBindParams.total_harga = totalHargaInt
+        whereConditions.push("subtotal >= :subtotal")
+        countBindParams.subtotal = totalHargaInt
+        dataBindParams.subtotal = totalHargaInt
     }
     
     if (status && status.trim() !== "") {
@@ -81,12 +83,12 @@ export const allPesan = asyncHandler(async (req, res) => {
         dataBindParams.status = `%${status}%`
     }
     
-    if (tanggal) {
+    if (datetime) {
         try {
-            const parsedTanggal = moment(tanggal).format('YYYY-MM-DD')
-            whereConditions.push("tanggal <= TO_DATE(:tanggal, 'YYYY-MM-DD')")
-            countBindParams.tanggal = parsedTanggal
-            dataBindParams.tanggal = parsedTanggal
+            const parseddatetime = moment(datetime).format('YYYY-MM-DD')
+            whereConditions.push("datetime <= TO_DATE(:datetime, 'YYYY-MM-DD')")
+            countBindParams.datetime = parseddatetime
+            dataBindParams.datetime = parseddatetime
         } catch (err) {
             console.log("Error parsing date:", err)
         }
@@ -96,10 +98,10 @@ export const allPesan = asyncHandler(async (req, res) => {
         ? "WHERE " + whereConditions.join(" AND ") 
         : ""
     
-    const countSql = `SELECT COUNT(*) AS total FROM pesan ${whereClause}`
+    const countSql = `SELECT COUNT(*) AS total FROM transaction ${whereClause}`
     
     const dataSql = `
-        SELECT * FROM pesan
+        SELECT * FROM transaction
         ${whereClause}
         ORDER BY ${sortBy} ${sortOrder}
         OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
@@ -123,7 +125,7 @@ export const allPesan = asyncHandler(async (req, res) => {
         const totalPages = Math.ceil(totalRecords / limitInt)
         
         return res.status(200).json({
-            message: "Berhasil menampilkan pesanan",
+            message: "Berhasil menampilkan transaksi",
             data: data.rows,
             pagination: {
                 page: pageInt,
@@ -136,11 +138,11 @@ export const allPesan = asyncHandler(async (req, res) => {
         })
 })
 
-export const detailPesan = asyncHandler(async (req, res) => {
+export const detailTransaction = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `SELECT * FROM pesan WHERE id_pesan = :id_pesan`
+    const sql = `SELECT * FROM transaction WHERE id_transaction = :id_transaction`
     const data = await conn.execute(
         sql,
         [id],
@@ -152,29 +154,29 @@ export const detailPesan = asyncHandler(async (req, res) => {
     await conn.close()
 
     return res.status(201).json({
-        message: "Berhasil menampilkan detail pesan",
+        message: "Berhasil menampilkan detail transaksi",
         data: data.rows[0],
     })
 })
 
-export const updatePesan = asyncHandler(async (req, res) => {
-    const { total_harga, status } = req.body
+export const updateTransaction = asyncHandler(async (req, res) => {
+    const { status } = req.body
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `UPDATE pesan SET total_harga = :total_harga, status = :status, tanggal = SYSDATE  WHERE id_pesan = :id_pesan`
-    const updatePesan = await conn.execute(
+    const sql = `UPDATE transaction SET status = :status, datetime = SYSDATE  WHERE id_transaction = :id_transaction`
+    const updateTransaction = await conn.execute(
         sql,
-        [total_harga, status, id],
+        [status, id],
         {
             autoCommit: true,
             outFormat: OUT_FORMAT_OBJECT
         }
     )
 
-    const getData = `SELECT id_pesan, total_harga, status, tanggal 
-                        FROM pesan 
-                        WHERE id_pesan = :id_pesan`
+    const getData = `SELECT id_transaction, subtotal, money, refund, status, datetime 
+                        FROM transaction 
+                        WHERE id_transaction = :id_transaction`
         
     const data = await conn.execute(
         getData,
@@ -187,17 +189,17 @@ export const updatePesan = asyncHandler(async (req, res) => {
     await conn.close()
 
     return res.status(201).json({
-        message: "Berhasil mengubah pesan",
+        message: "Berhasil mengubah status transaksi",
         data: data.rows[0],
     })
 })
 
-export const deletePesan = asyncHandler(async (req, res) => {
+export const deleteTransaction = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
-    const sql = `DELETE FROM Pesan WHERE id_Pesan = :id_Pesan`
-    const deletePesan = await conn.execute(
+    const sql = `DELETE FROM transaction WHERE id_transaction = :id_transaction`
+    const deleteTransaction = await conn.execute(
         sql,
         [id],
         {
@@ -208,6 +210,6 @@ export const deletePesan = asyncHandler(async (req, res) => {
     await conn.close()
 
     return res.status(201).json({
-        message: "Berhasil menghapus pesanan",
+        message: "Berhasil menghapus transaksi",
     })
 })

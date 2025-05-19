@@ -3,7 +3,7 @@ import { connection } from './database/connection.js'
 import { errorHandler, pathNotFound } from './middleware/errorMiddleware.js'
 import cookieParser from 'cookie-parser'
 import menuRoutes from './routes/menuRoutes.js'
-import pesanRoutes from './routes/pesanRoutes.js'
+import transactionRoutes from './routes/transactionRoutes.js'
 
 const app = express()
 const port = 3000
@@ -15,7 +15,7 @@ app.use(cookieParser())
 
 // Parent Routes
 app.use('/api/v1/menu', menuRoutes)
-app.use('/api/v1/pesan', pesanRoutes)
+app.use('/api/v1/transaction', transactionRoutes)
 
 // Error Handler
 app.use(pathNotFound)
