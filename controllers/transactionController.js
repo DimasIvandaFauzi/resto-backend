@@ -11,7 +11,7 @@ export const createTransaction = asyncHandler(async (req, res) => {
     const sql = `INSERT INTO transaction (id_transaction, subtotal, money, refund, status, datetime)
                 VALUES (:id_transaction, :subtotal, :money, ${refund}, 'PROSES', SYSDATE)`
 
-    const newTransaction = await conn.execute(
+    await conn.execute(
         sql,
         [id, subtotal, money],
         {
@@ -151,9 +151,15 @@ export const detailTransaction = asyncHandler(async (req, res) => {
         }
     )
 
+    if(data.rows.length === 0) {
+        return res.status(404).json({
+            message: "Transaksi tidak ditemukan",
+        })
+    }
+
     await conn.close()
 
-    return res.status(201).json({
+    return res.status(200).json({
         message: "Berhasil menampilkan detail transaksi",
         data: data.rows[0],
     })
@@ -165,7 +171,7 @@ export const updateTransaction = asyncHandler(async (req, res) => {
 
     const conn = await connection()
     const sql = `UPDATE transaction SET status = :status, datetime = SYSDATE  WHERE id_transaction = :id_transaction`
-    const updateTransaction = await conn.execute(
+    await conn.execute(
         sql,
         [status, id],
         {
@@ -188,6 +194,12 @@ export const updateTransaction = asyncHandler(async (req, res) => {
 
     await conn.close()
 
+    if(data.rows.length === 0) {
+        return res.status(404).json({
+            message: "Transaksi tidak ditemukan",
+        })
+    }
+
     return res.status(201).json({
         message: "Berhasil mengubah status transaksi",
         data: data.rows[0],
@@ -198,8 +210,24 @@ export const deleteTransaction = asyncHandler(async (req, res) => {
     const id = req.params.id
 
     const conn = await connection()
+    // Cek apakah transaksi dengan id tersebut ada
+    const checkSql = `SELECT COUNT(*) AS count FROM transaction WHERE id_transaction = :id_transaction`
+    const checkResult = await conn.execute(
+        checkSql,
+        [id],
+        {
+            outFormat: OUT_FORMAT_OBJECT
+        }
+    )
+    if (checkResult.rows[0].COUNT === 0) {
+        await conn.close()
+        return res.status(404).json({
+            message: "Transaksi tidak ditemukan",
+        })
+    }
+
     const sql = `DELETE FROM transaction WHERE id_transaction = :id_transaction`
-    const deleteTransaction = await conn.execute(
+    await conn.execute(
         sql,
         [id],
         {
@@ -209,7 +237,7 @@ export const deleteTransaction = asyncHandler(async (req, res) => {
 
     await conn.close()
 
-    return res.status(201).json({
+    return res.status(200).json({
         message: "Berhasil menghapus transaksi",
     })
 })

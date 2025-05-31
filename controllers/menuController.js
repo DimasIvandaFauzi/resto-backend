@@ -92,7 +92,7 @@ export const detailMenu = asyncHandler(async (req, res) => {
 
     await conn.close()
 
-    return res.status(201).json({
+    return res.status(200).json({
         message: "Berhasil menampilkan detail menu",
         data: data.rows[0],
     })
@@ -148,7 +148,7 @@ export const deleteMenu = asyncHandler(async (req, res) => {
 
     await conn.close()
 
-    return res.status(201).json({
+    return res.status(200).json({
         message: "Berhasil menghapus menu",
     })
 })
