@@ -1,215 +1,221 @@
-import asyncHandler from "../middleware/asyncHandler.js"
-import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js"
-import moment from "moment"
+import asyncHandler from "../middleware/asyncHandler.js";
+import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js";
+import oracledb from "oracledb";
 
 export const createTransaction = asyncHandler(async (req, res) => {
-    const { id, subtotal, money } = req.body
+    const { items, money, payment_method } = req.body;
 
-    let refund = money - subtotal
+    // Validasi input
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new Error("Items harus berupa array dan tidak boleh kosong");
+    }
+    if (!money || money < 0 || isNaN(Number(money))) {
+        throw new Error("Money harus berupa angka positif");
+    }
+    if (!payment_method || !["CASH", "CARD", "QRIS"].includes(payment_method)) {
+        throw new Error("Payment method harus CASH, CARD, atau QRIS");
+    }
 
-    const conn = await connection()
-    const sql = `INSERT INTO transaction (id_transaction, subtotal, money, refund, status, datetime)
-                VALUES (:id_transaction, :subtotal, :money, ${refund}, 'PROSES', SYSDATE)`
+    const conn = await connection();
+    try {
+        // Hitung subtotal dan validasi
+        let subtotal = 0;
+        for (const item of items) {
+            const { id_menu, quantity } = item;
+            if (!id_menu || !quantity || isNaN(Number(quantity)) || quantity <= 0) {
+                throw new Error("Item tidak valid");
+            }
 
-    const newTransaction = await conn.execute(
-        sql,
-        [id, subtotal, money],
-        {
-            autoCommit: true,
+            const menuId = Number(id_menu);
+            const quantityNum = parseInt(quantity, 10);
+            if (isNaN(menuId)) {
+                throw new Error(`ID menu ${id_menu} tidak valid`);
+            }
+
+            const menuResult = await conn.execute(
+                `SELECT PRICE, STOCK FROM RESTO.MENU WHERE ID_MENU = :id_menu`,
+                { id_menu: menuId },
+                { outFormat: OUT_FORMAT_OBJECT }
+            );
+            if (menuResult.rows.length === 0) {
+                throw new Error(`Menu dengan ID ${menuId} tidak ditemukan`);
+            }
+            const { PRICE, STOCK } = menuResult.rows[0];
+            if (STOCK < quantityNum) {
+                throw new Error(`Stok menu ${menuId} tidak cukup`);
+            }
+            subtotal += PRICE * quantityNum;
         }
-    )
 
-    const getData = `SELECT id_transaction, subtotal, money, refund, status, datetime 
-                        FROM transaction 
-                        WHERE id_transaction = :id_transaction`
-        
-    const data = await conn.execute(
-        getData,
-        [id],
-        {
-            outFormat: OUT_FORMAT_OBJECT
+        if (money < subtotal) {
+            throw new Error("Uang tidak cukup");
         }
-    )
+        const refund = Number(money) - subtotal;
 
-    await conn.close()
+        console.log('Creating transaction with:', { subtotal, money, refund });
 
-    return res.status(201).json({
-        message: "Berhasil membuat transaksi",
-        data: data.rows[0],
-    })
-})
+        // Insert transaksi
+        const transactionSql = `
+            INSERT INTO RESTO.TRANSACTION (ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID)
+            VALUES (RESTO.SEQ_TRANSACTION.NEXTVAL, :subtotal, :money, :refund, :status, SYSTIMESTAMP, :is_valid)
+            RETURNING ID_TRANSACTION INTO :id_transaction
+        `;
+        const transactionResult = await conn.execute(
+            transactionSql,
+            { 
+                subtotal: Number(subtotal), 
+                money: Number(money), 
+                refund: Number(refund), 
+                status: 'SELESAI',
+                is_valid: 1,
+                id_transaction: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } 
+            },
+            { autoCommit: false }
+        );
+        const id_transaction = transactionResult.outBinds.id_transaction;
+
+        console.log('Inserted transaction ID:', id_transaction);
+
+        // Insert detail transaksi
+        for (const item of items) {
+            const { id_menu, quantity } = item;
+            const menuId = Number(id_menu);
+            const quantityNum = parseInt(quantity, 10);
+            const menuResult = await conn.execute(
+                `SELECT PRICE FROM RESTO.MENU WHERE ID_MENU = :id_menu`,
+                { id_menu: menuId },
+                { outFormat: OUT_FORMAT_OBJECT }
+            );
+            const price = menuResult.rows[0].PRICE;
+            const itemSubtotal = price * quantityNum;
+
+            await conn.execute(
+                `INSERT INTO RESTO.DETAIL_TRANSACTION (ID_DETAIL_TRANSACTION, ID_TRANSACTION, ID_MENU, QUANTITY, PRICE, SUBTOTAL)
+                 VALUES (RESTO.SEQ_DETAIL_TRANSACTION.NEXTVAL, :id_transaction, :id_menu, :quantity, :price, :subtotal)`,
+                { 
+                    id_transaction: Number(id_transaction), 
+                    id_menu: menuId, 
+                    quantity: quantityNum, 
+                    price: Number(price), 
+                    subtotal: Number(itemSubtotal) 
+                },
+                { autoCommit: false }
+            );
+        }
+
+        // Insert pembayaran
+        await conn.execute(
+            `INSERT INTO RESTO.PAYMENT (ID_PAYMENT, ID_TRANSACTION, PAYMENT_METHOD, AMOUNT, PAYMENT_DATE)
+             VALUES (RESTO.SEQ_PAYMENT.NEXTVAL, :id_transaction, :payment_method, :amount, SYSTIMESTAMP)`,
+            { 
+                id_transaction: Number(id_transaction), 
+                payment_method, 
+                amount: Number(money) 
+            },
+            { autoCommit: false }
+        );
+
+        await conn.commit();
+
+        // Ambil data transaksi
+        const getData = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+                         FROM RESTO.TRANSACTION 
+                         WHERE ID_TRANSACTION = :id_transaction`;
+        const data = await conn.execute(
+            getData,
+            { id_transaction: Number(id_transaction) },
+            { outFormat: OUT_FORMAT_OBJECT }
+        );
+
+        if (data.rows.length === 0) {
+            throw new Error("Gagal mengambil data transaksi");
+        }
+
+        return res.status(201).json({
+            message: "Berhasil membuat transaksi",
+            data: data.rows[0]
+        });
+    } catch (error) {
+        console.error('Error in createTransaction:', error.message, error.stack);
+        await conn.rollback();
+        throw error;
+    } finally {
+        await conn.close();
+    }
+});
 
 export const allTransaction = asyncHandler(async (req, res) => {
-    const conn = await connection()
-    
-    let {
-        subtotal = 0,
-        status = "",
-        datetime,
-        page = 1,
-        limit = 7,
-        sortBy = "id_transaction",
-        sortOrder = "ASC"
-    } = req.query
-    
-    // Validasi parameter sorting
-    const allowedSortFields = ["id_transaction", "subtotal", "money", "refund", "status", "datetime"]
-    const allowedSortOrders = ["ASC", "DESC"]
-    
-    if (!allowedSortFields.includes(sortBy)) sortBy = "id_transaction"
-    if (!allowedSortOrders.includes(sortOrder.toUpperCase())) sortOrder = "ASC"
-    
-    const pageInt = parseInt(page)
-    const limitInt = parseInt(limit)
-    const offset = (pageInt - 1) * limitInt
-    const totalHargaInt = parseInt(subtotal || 0)
-    
-    let whereConditions = []
-    let countBindParams = {}
-    let dataBindParams = {
-        offset: offset,
-        limit: limitInt
-    }
-    
-    if (totalHargaInt > 0) {
-        whereConditions.push("subtotal >= :subtotal")
-        countBindParams.subtotal = totalHargaInt
-        dataBindParams.subtotal = totalHargaInt
-    }
-    
-    if (status && status.trim() !== "") {
-        whereConditions.push("LOWER(status) LIKE LOWER(:status)")
-        countBindParams.status = `%${status}%`
-        dataBindParams.status = `%${status}%`
-    }
-    
-    if (datetime) {
-        try {
-            const parseddatetime = moment(datetime).format('YYYY-MM-DD')
-            whereConditions.push("datetime <= TO_DATE(:datetime, 'YYYY-MM-DD')")
-            countBindParams.datetime = parseddatetime
-            dataBindParams.datetime = parseddatetime
-        } catch (err) {
-            console.log("Error parsing date:", err)
-        }
-    }
-    
-    const whereClause = whereConditions.length > 0 
-        ? "WHERE " + whereConditions.join(" AND ") 
-        : ""
-    
-    const countSql = `SELECT COUNT(*) AS total FROM transaction ${whereClause}`
-    
-    const dataSql = `
-        SELECT * FROM transaction
-        ${whereClause}
-        ORDER BY ${sortBy} ${sortOrder}
-        OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
-    `
-        
-        const countResult = await conn.execute(
-            countSql,
-            countBindParams,
-            { outFormat: OUT_FORMAT_OBJECT }
-        )
-        
-        const data = await conn.execute(
-            dataSql,
-            dataBindParams,
-            { outFormat: OUT_FORMAT_OBJECT }
-        )
-        
-        await conn.close()
-        
-        const totalRecords = countResult.rows[0].TOTAL
-        const totalPages = Math.ceil(totalRecords / limitInt)
-        
+    const conn = await connection();
+    try {
+        const sql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+                     FROM RESTO.TRANSACTION 
+                     WHERE IS_VALID = 1 
+                     ORDER BY DATETIME DESC`;
+        const result = await conn.execute(sql, {}, { outFormat: OUT_FORMAT_OBJECT });
+
         return res.status(200).json({
-            message: "Berhasil menampilkan transaksi",
-            data: data.rows,
-            pagination: {
-                page: pageInt,
-                limit: limitInt,
-                totalRecords,
-                totalPages,
-                hasNextPage: pageInt < totalPages,
-                hasPrevPage: pageInt > 1
-            }
-        })
-})
+            message: "Berhasil menampilkan semua transaksi",
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Error in allTransaction:', error.message, error.stack);
+        throw error;
+    } finally {
+        await conn.close();
+    }
+});
 
 export const detailTransaction = asyncHandler(async (req, res) => {
-    const id = req.params.id
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+        throw new Error("ID transaksi tidak valid");
+    }
 
-    const conn = await connection()
-    const sql = `SELECT * FROM transaction WHERE id_transaction = :id_transaction`
-    const data = await conn.execute(
-        sql,
-        [id],
-        {
-            outFormat: OUT_FORMAT_OBJECT
+    const conn = await connection();
+    try {
+        const transactionSql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+                               FROM RESTO.TRANSACTION 
+                               WHERE ID_TRANSACTION = :id_transaction AND IS_VALID = 1`;
+        const transactionResult = await conn.execute(
+            transactionSql,
+            { id_transaction: id },
+            { outFormat: OUT_FORMAT_OBJECT }
+        );
+
+        if (transactionResult.rows.length === 0) {
+            throw new Error("Transaksi tidak ditemukan atau tidak valid");
         }
-    )
 
-    await conn.close()
+        const detailSql = `SELECT ID_DETAIL_TRANSACTION, ID_MENU, QUANTITY, PRICE, SUBTOTAL 
+                           FROM RESTO.DETAIL_TRANSACTION 
+                           WHERE ID_TRANSACTION = :id_transaction`;
+        const detailResult = await conn.execute(
+            detailSql,
+            { id_transaction: id },
+            { outFormat: OUT_FORMAT_OBJECT }
+        );
 
-    return res.status(201).json({
-        message: "Berhasil menampilkan detail transaksi",
-        data: data.rows[0],
-    })
-})
+        const paymentSql = `SELECT ID_PAYMENT, PAYMENT_METHOD, AMOUNT, PAYMENT_DATE 
+                            FROM RESTO.PAYMENT 
+                            WHERE ID_TRANSACTION = :id_transaction`;
+        const paymentResult = await conn.execute(
+            paymentSql,
+            { id_transaction: id },
+            { outFormat: OUT_FORMAT_OBJECT }
+        );
 
-export const updateTransaction = asyncHandler(async (req, res) => {
-    const { status } = req.body
-    const id = req.params.id
-
-    const conn = await connection()
-    const sql = `UPDATE transaction SET status = :status, datetime = SYSDATE  WHERE id_transaction = :id_transaction`
-    const updateTransaction = await conn.execute(
-        sql,
-        [status, id],
-        {
-            autoCommit: true,
-            outFormat: OUT_FORMAT_OBJECT
-        }
-    )
-
-    const getData = `SELECT id_transaction, subtotal, money, refund, status, datetime 
-                        FROM transaction 
-                        WHERE id_transaction = :id_transaction`
-        
-    const data = await conn.execute(
-        getData,
-        [id],
-        {
-            outFormat: OUT_FORMAT_OBJECT
-        }
-    )
-
-    await conn.close()
-
-    return res.status(201).json({
-        message: "Berhasil mengubah status transaksi",
-        data: data.rows[0],
-    })
-})
-
-export const deleteTransaction = asyncHandler(async (req, res) => {
-    const id = req.params.id
-
-    const conn = await connection()
-    const sql = `DELETE FROM transaction WHERE id_transaction = :id_transaction`
-    const deleteTransaction = await conn.execute(
-        sql,
-        [id],
-        {
-            autoCommit: true,
-        }
-    )
-
-    await conn.close()
-
-    return res.status(201).json({
-        message: "Berhasil menghapus transaksi",
-    })
-})
+        return res.status(200).json({
+            message: "Berhasil menampilkan detail transaksi",
+            data: {
+                transaction: transactionResult.rows[0],
+                items: detailResult.rows,
+                payment: paymentResult.rows[0]
+            }
+        });
+    } catch (error) {
+        console.error('Error in detailTransaction:', error.message, error.stack);
+        throw error;
+    } finally {
+        await conn.close();
+    }
+});

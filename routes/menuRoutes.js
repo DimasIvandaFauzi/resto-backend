@@ -1,22 +1,12 @@
-import express from 'express'
-import { createMenu, allMenu, detailMenu, updateMenu, deleteMenu } from '../controllers/menuController.js'
+import express from 'express';
+import { createMenu, allMenu, detailMenu, updateMenu, deleteMenu } from '../controllers/menuController.js';
 
-const router = express.Router()
+const router = express.Router();
 
-// post /api/v1/menu/
-router.post('/', createMenu)
+router.post('/', createMenu); // Create a new menu
+router.get('/', allMenu); // Get all menus with filters and pagination
+router.get('/:id', detailMenu); // Get menu details by ID
+router.put('/:id', updateMenu); // Update menu by ID
+router.delete('/:id', deleteMenu); // Delete menu by ID
 
-// get /api/v1/menu/
-router.get('/', allMenu)
-
-// get /api/v1/menu/
-router.get('/:id', detailMenu)
-
-// // put /api/v1/menu/
-router.put('/:id', updateMenu)
-
-// delete /api/v1/menu/
-router.delete('/:id', deleteMenu)
-
-
-export default router
+export default router;
