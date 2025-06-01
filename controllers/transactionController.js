@@ -3,7 +3,7 @@ import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js";
 import oracledb from "oracledb";
 
 export const createTransaction = asyncHandler(async (req, res) => {
-    const { items, money, payment_method } = req.body;
+    const { items, money, payment_method, cashier } = req.body;
 
     // Validasi input
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -56,8 +56,8 @@ export const createTransaction = asyncHandler(async (req, res) => {
 
         // Insert transaksi
         const transactionSql = `
-            INSERT INTO RESTO.TRANSACTION (ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID)
-            VALUES (RESTO.SEQ_TRANSACTION.NEXTVAL, :subtotal, :money, :refund, :status, SYSTIMESTAMP, :is_valid)
+            INSERT INTO RESTO.TRANSACTION (ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER)
+            VALUES (RESTO.SEQ_TRANSACTION.NEXTVAL, :subtotal, :money, :refund, :status, SYSTIMESTAMP, :is_valid, :cashier)
             RETURNING ID_TRANSACTION INTO :id_transaction
         `;
         const transactionResult = await conn.execute(
@@ -68,7 +68,8 @@ export const createTransaction = asyncHandler(async (req, res) => {
                 refund: Number(refund), 
                 status: 'SELESAI',
                 is_valid: 1,
-                id_transaction: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } 
+                id_transaction: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+                cashier: cashier || 'Admin'
             },
             { autoCommit: false }
         );
@@ -118,7 +119,7 @@ export const createTransaction = asyncHandler(async (req, res) => {
         await conn.commit();
 
         // Ambil data transaksi
-        const getData = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+        const getData = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER 
                          FROM RESTO.TRANSACTION 
                          WHERE ID_TRANSACTION = :id_transaction`;
         const data = await conn.execute(
@@ -173,7 +174,7 @@ export const detailTransaction = asyncHandler(async (req, res) => {
 
     const conn = await connection();
     try {
-        const transactionSql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+        const transactionSql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER 
                                FROM RESTO.TRANSACTION 
                                WHERE ID_TRANSACTION = :id_transaction AND IS_VALID = 1`;
         const transactionResult = await conn.execute(
