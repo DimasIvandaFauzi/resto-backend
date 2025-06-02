@@ -3,7 +3,7 @@ import { connection, OUT_FORMAT_OBJECT } from "../database/connection.js";
 import oracledb from "oracledb";
 
 export const createTransaction = asyncHandler(async (req, res) => {
-    const { items, money, payment_method, cashier } = req.body;
+    const { items, money, payment_method, cashier, customer_name } = req.body; // Tambah customer_name
 
     // Validasi input
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -14,6 +14,9 @@ export const createTransaction = asyncHandler(async (req, res) => {
     }
     if (!payment_method || !["CASH", "CARD", "QRIS"].includes(payment_method)) {
         throw new Error("Payment method harus CASH, CARD, atau QRIS");
+    }
+    if (customer_name && (typeof customer_name !== "string" || customer_name.length > 100)) {
+        throw new Error("Nama pelanggan harus berupa string maksimal 100 karakter");
     }
 
     const conn = await connection();
@@ -52,12 +55,12 @@ export const createTransaction = asyncHandler(async (req, res) => {
         }
         const refund = Number(money) - subtotal;
 
-        console.log('Creating transaction with:', { subtotal, money, refund });
+        console.log('Creating transaction with:', { subtotal, money, refund, cashier, customer_name });
 
         // Insert transaksi
         const transactionSql = `
-            INSERT INTO RESTO.TRANSACTION (ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER)
-            VALUES (RESTO.SEQ_TRANSACTION.NEXTVAL, :subtotal, :money, :refund, :status, SYSTIMESTAMP, :is_valid, :cashier)
+            INSERT INTO RESTO.TRANSACTION (ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER, CUSTOMER_NAME)
+            VALUES (RESTO.SEQ_TRANSACTION.NEXTVAL, :subtotal, :money, :refund, :status, SYSTIMESTAMP, :is_valid, :cashier, :customer_name)
             RETURNING ID_TRANSACTION INTO :id_transaction
         `;
         const transactionResult = await conn.execute(
@@ -68,8 +71,9 @@ export const createTransaction = asyncHandler(async (req, res) => {
                 refund: Number(refund), 
                 status: 'SELESAI',
                 is_valid: 1,
-                id_transaction: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-                cashier: cashier || 'Admin'
+                cashier: cashier || 'Admin',
+                customer_name: customer_name || null, // Gunakan null jika tidak ada nama
+                id_transaction: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
             },
             { autoCommit: false }
         );
@@ -119,7 +123,7 @@ export const createTransaction = asyncHandler(async (req, res) => {
         await conn.commit();
 
         // Ambil data transaksi
-        const getData = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER 
+        const getData = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER, CUSTOMER_NAME 
                          FROM RESTO.TRANSACTION 
                          WHERE ID_TRANSACTION = :id_transaction`;
         const data = await conn.execute(
@@ -148,7 +152,7 @@ export const createTransaction = asyncHandler(async (req, res) => {
 export const allTransaction = asyncHandler(async (req, res) => {
     const conn = await connection();
     try {
-        const sql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID 
+        const sql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER, CUSTOMER_NAME 
                      FROM RESTO.TRANSACTION 
                      WHERE IS_VALID = 1 
                      ORDER BY DATETIME DESC`;
@@ -174,7 +178,7 @@ export const detailTransaction = asyncHandler(async (req, res) => {
 
     const conn = await connection();
     try {
-        const transactionSql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER 
+        const transactionSql = `SELECT ID_TRANSACTION, SUBTOTAL, MONEY, REFUND, STATUS, DATETIME, IS_VALID, CASHIER, CUSTOMER_NAME 
                                FROM RESTO.TRANSACTION 
                                WHERE ID_TRANSACTION = :id_transaction AND IS_VALID = 1`;
         const transactionResult = await conn.execute(
